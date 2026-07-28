@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.paging.compose.LazyPagingItems
 import com.capyreader.app.common.AudioEnclosure
 import com.capyreader.app.common.Media
@@ -133,13 +134,28 @@ fun ArticleView(
     val hideSystemStatusBar by appPreferences.readerOptions.hideStatusBar.collectChangesWithDefault()
     val view = LocalView.current
 
-    DisposableEffect(hideSystemStatusBar, article.id) {
-        if (hideSystemStatusBar && !view.isInEditMode) {
-            val window = (view.context as Activity).window
-            val insetsController = WindowCompat.getInsetsController(window, view)
-            insetsController.hide(WindowInsetsCompat.Type.statusBars())
-        }
+    // Sync system status bar visibility with toolbar scroll behavior:
+    // hides when scrolling down, shows when scrolling up
+    LaunchedEffect(hideSystemStatusBar, showToolBar) {
+        if (view.isInEditMode) return@LaunchedEffect
 
+        val window = (view.context as Activity).window
+        val insetsController = WindowCompat.getInsetsController(window, view)
+
+        if (hideSystemStatusBar) {
+            insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (!showToolBar) {
+                insetsController.hide(WindowInsetsCompat.Type.statusBars())
+            } else {
+                insetsController.show(WindowInsetsCompat.Type.statusBars())
+            }
+        } else {
+            insetsController.show(WindowInsetsCompat.Type.statusBars())
+        }
+    }
+
+    // Always restore status bar when leaving the article view
+    DisposableEffect(Unit) {
         onDispose {
             if (!view.isInEditMode) {
                 val window = (view.context as Activity).window
