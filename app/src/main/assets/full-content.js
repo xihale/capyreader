@@ -1,6 +1,7 @@
 /**
  * @param {Object} article
  * @param {string} article.html
+ * @param {string} article.baseUrl
  * @param {string | null} article.url
  * @param {boolean} article.hideImages
  */
@@ -33,7 +34,7 @@ async function displayFullContent(article) {
       content.replaceWith(extracted);
     }
 
-    postProcessContent(article.url ?? "", hideImages);
+    postProcessContent(article.baseUrl ?? article.url ?? "", hideImages);
   } catch (e) {
     console.error(e);
   }
@@ -43,6 +44,7 @@ async function displayFullContent(article) {
  * @param {Object} article
  * @param {string} article.html
  * @param {string | null} article.url
+ * @param {string} article.baseUrl
  */
 async function parseWithParser(article) {
   const result = await Mercury.parse(article.url, { html: article.html });
@@ -52,4 +54,3 @@ async function parseWithParser(article) {
     content: result.content,
   };
 }
-

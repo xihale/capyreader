@@ -21,6 +21,19 @@ if (rootProject.file("secrets.properties").exists()) {
     secrets.load(rootProject.file("secrets.properties").inputStream())
 }
 
+val keystorePath = System.getenv("CAPYREADER_KEYSTORE")
+    ?: secrets.getProperty("keystore_path")
+    ?: "${project.rootDir}/release.keystore"
+val signingStorePassword = System.getenv("CAPYREADER_STORE_PASSWORD")
+    ?: secrets.getProperty("store_password")
+    ?: ""
+val signingKeyAlias = System.getenv("CAPYREADER_KEY_ALIAS")
+    ?: secrets.getProperty("key_alias")
+    ?: ""
+val signingKeyPassword = System.getenv("CAPYREADER_KEY_PASSWORD")
+    ?: secrets.getProperty("key_password")
+    ?: ""
+
 android {
     namespace = "com.capyreader.app"
     compileSdk = 36
@@ -73,10 +86,10 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("${project.rootDir}/release.keystore")
-            storePassword = secrets.getProperty("store_password")
-            keyAlias = secrets.getProperty("key_alias")
-            keyPassword = secrets.getProperty("key_password")
+            storeFile = file(keystorePath)
+            storePassword = signingStorePassword
+            keyAlias = signingKeyAlias
+            keyPassword = signingKeyPassword
         }
 
         getByName("debug") {
@@ -118,6 +131,15 @@ android {
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         }
     }
+}
+
+// Disable Crashlytics mapping file upload for nightly builds to avoid hanging.
+// Nightly builds don't need mapping uploads, and the task can block indefinitely
+// on network issues or Firebase misconfiguration.
+afterEvaluate {
+    tasks.matching {
+        it.name.contains("CrashlyticsMappingFile") && it.name.contains("Nightly")
+    }.forEach { it.enabled = false }
 }
 
 

@@ -76,23 +76,23 @@ fun ArticleTopBar(
             .zIndex(1f),
         contentAlignment = Alignment.TopCenter,
     ) {
-        Column(modifier = Modifier.drawBehind { drawRect(containerColor) }) {
-            Spacer(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
-            )
-            AnimatedVisibility(
-                visible = show,
-                enter = expandVertically(
-                    expandFrom = Alignment.Bottom,
-                    animationSpec = sizeSpec
-                ),
-                exit = shrinkVertically(
-                    shrinkTowards = Alignment.Bottom,
-                    animationSpec = sizeSpec
-                ),
-            ) {
+        AnimatedVisibility(
+            visible = show,
+            enter = expandVertically(
+                expandFrom = Alignment.Bottom,
+                animationSpec = sizeSpec
+            ),
+            exit = shrinkVertically(
+                shrinkTowards = Alignment.Bottom,
+                animationSpec = sizeSpec
+            ),
+        ) {
+            Column(modifier = Modifier.drawBehind { drawRect(containerColor) }) {
+                Spacer(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
+                )
                 TopAppBar(
                     navigationIcon = {
                         ArticleNavigationIcon(
@@ -180,12 +180,12 @@ fun ArticleTopBar(
                     ),
                 )
             }
-            if (isScrolled) {
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    thickness = 0.5f.dp,
-                )
-            }
+        }
+        if (isScrolled) {
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                thickness = 0.5f.dp,
+            )
         }
     }
 

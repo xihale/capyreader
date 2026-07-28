@@ -17,39 +17,239 @@ function addImageClickListeners() {
     (img) => !img.classList.contains("iframe-embed__image"),
   );
 
-  /** @type {MediaItem[]} */
-  const galleryImages = images.map((i) => ({
-    url: i.src,
-    altText: i.alt || null,
-  }));
-
   images.forEach((img, index) => {
     img.addEventListener("click", (e) => {
+      if (img.classList.contains("image-error")) {
+        return;
+      }
+
+      const galleryNodes = [...document.getElementsByTagName("img")].filter(
+        (candidate) =>
+          !candidate.classList.contains("iframe-embed__image") &&
+          !candidate.classList.contains("image-error"),
+      );
+
+      const imageIndex = galleryNodes.indexOf(img);
+      if (imageIndex < 0) {
+        return;
+      }
+
+      /** @type {MediaItem[]} */
+      const galleryImages = galleryNodes.map((node) => ({
+        url: node.src,
+        altText: node.alt || null,
+      }));
+
       e.preventDefault();
-      Android.openImageGallery(JSON.stringify(galleryImages), index);
+      Android.openImageGallery(JSON.stringify(galleryImages), imageIndex);
     });
 
     longPress(img, (e) => {
+      if (img.classList.contains("image-error")) {
+        return;
+      }
+
       e.preventDefault();
       Android.showImageDialog(img.src);
     });
   });
 }
 
+const IMAGE_ERROR_PLACEHOLDER =
+  "data:image/svg+xml;charset=UTF-8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" fill="none"><rect width="640" height="360" rx="24" fill="#E6EAF0"/><circle cx="210" cy="136" r="34" fill="#A0AAB8"/><path d="M120 280 250 164l86 78 70-56 114 94H120Z" fill="#8B95A5"/><path d="M166 84h308" stroke="#A0AAB8" stroke-width="24" stroke-linecap="round"/></svg>',
+  );
+
+function firstNonBlank(values) {
+  return values
+    .map((value) => value?.trim())
+    .find((value) => value && value.length > 0);
+}
+
+function firstSrcsetUrl(srcset) {
+  if (!srcset) {
+    return null;
+  }
+
+  return srcset
+    .split(",")
+    .map((part) => part.trim().split(/\s+/)[0])
+    .find((value) => value && value.length > 0);
+}
+
+function resolveImageUrl(url, baseUrl) {
+  if (!url) {
+    return null;
+  }
+
+  if (
+    url.startsWith("data:") ||
+    url.startsWith("blob:") ||
+    url.startsWith("file:") ||
+    url.startsWith("content:")
+  ) {
+    return url;
+  }
+
+  try {
+    return new URL(url, baseUrl || document.baseURI).href;
+  } catch (e) {
+    return null;
+  }
+}
+
+function normalizeSrcset(srcset, baseUrl) {
+  return srcset
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .map((part) => {
+      const [url, ...descriptor] = part.split(/\s+/);
+      const resolvedUrl = resolveImageUrl(url, baseUrl) || url;
+      return [resolvedUrl, ...descriptor].join(" ").trim();
+    })
+    .join(", ");
+}
+
+function imageSource(img) {
+  const picture = img.parentElement?.nodeName === "PICTURE" ? img.parentElement : null;
+
+  const pictureSource = picture
+    ? firstNonBlank(
+        [...picture.querySelectorAll("source")].map(
+          (source) =>
+            firstNonBlank([
+              source.getAttribute("data-src"),
+              source.getAttribute("src"),
+            ]) ||
+            firstSrcsetUrl(source.getAttribute("data-srcset")) ||
+            firstSrcsetUrl(source.getAttribute("srcset")),
+        ),
+      )
+    : null;
+
+  return (
+    pictureSource ||
+    firstNonBlank([
+      img.getAttribute("data-src"),
+      img.getAttribute("data-original"),
+      img.getAttribute("data-lazy-src"),
+      img.getAttribute("data-url"),
+      img.getAttribute("data-image"),
+      img.getAttribute("data-cfsrc"),
+      img.getAttribute("src"),
+    ]) ||
+    firstSrcsetUrl(img.getAttribute("data-srcset")) ||
+    firstSrcsetUrl(img.getAttribute("srcset"))
+  );
+}
+
+function imageSrcset(img) {
+  const picture = img.parentElement?.nodeName === "PICTURE" ? img.parentElement : null;
+
+  return (
+    (picture
+      ? firstNonBlank(
+          [...picture.querySelectorAll("source")].map((source) =>
+            firstNonBlank([
+              source.getAttribute("data-srcset"),
+              source.getAttribute("srcset"),
+            ]),
+          ),
+        )
+      : null) ||
+    firstNonBlank([
+      img.getAttribute("data-srcset"),
+      img.getAttribute("srcset"),
+    ])
+  );
+}
+
+function normalizePictureSources(content, baseUrl) {
+  content.querySelectorAll("picture source").forEach((source) => {
+    const src = firstNonBlank([
+      source.getAttribute("data-src"),
+      source.getAttribute("src"),
+    ]);
+    if (src) {
+      const resolvedSrc = resolveImageUrl(src, baseUrl);
+      if (resolvedSrc) {
+        source.src = resolvedSrc;
+      }
+    }
+
+    const srcset = firstNonBlank([
+      source.getAttribute("data-srcset"),
+      source.getAttribute("srcset"),
+    ]);
+    if (srcset) {
+      source.srcset = normalizeSrcset(srcset, baseUrl);
+    }
+  });
+}
+
+function normalizeImageSource(img, baseUrl) {
+  const src = imageSource(img);
+  if (!src) {
+    return false;
+  }
+
+  const resolvedSrc = resolveImageUrl(src, baseUrl);
+  if (!resolvedSrc) {
+    return false;
+  }
+
+  delete img.dataset.placeholderImage;
+  img.classList.remove("image-error", "loaded");
+  img.src = resolvedSrc;
+
+  const srcset = imageSrcset(img);
+  if (srcset) {
+    img.srcset = normalizeSrcset(srcset, baseUrl);
+  } else {
+    img.removeAttribute("srcset");
+  }
+
+  return true;
+}
+
 /**
  * @param {HTMLImageElement} img
  */
 function setupImageLoadHandler(img) {
-  if (img.classList.contains("loaded")) {
-    return;
-  }
-
-  img.onload = () => img.classList.add("loaded");
-  img.onerror = () => img.classList.add("loaded");
-
-  // Check after attaching - catches race condition
-  if (img.complete) {
+  const markLoaded = () => {
     img.classList.add("loaded");
+
+    if (img.dataset.placeholderImage !== "true") {
+      img.classList.remove("image-error");
+    }
+  };
+
+  const markError = () => {
+    if (img.dataset.placeholderImage === "true") {
+      img.classList.add("loaded", "image-error");
+      return;
+    }
+
+    img.dataset.placeholderImage = "true";
+    img.classList.add("loaded", "image-error");
+    img.removeAttribute("srcset");
+    img.src = IMAGE_ERROR_PLACEHOLDER;
+  };
+
+  img.onload = markLoaded;
+  img.onerror = () => {
+    img.onerror = null;
+    markError();
+  };
+
+  if (img.complete) {
+    if (img.naturalWidth > 0) {
+      markLoaded();
+    } else {
+      markError();
+    }
   }
 }
 
@@ -101,7 +301,7 @@ function cleanEmbeds(element = document) {
   const imgs = element.querySelectorAll("img");
 
   for (const img of imgs) {
-    if (!img.src) {
+    if (!normalizeImageSource(img, "")) {
       img.remove();
     }
   }
@@ -201,7 +401,9 @@ function postProcessContent(baseUrl, hideImages) {
   const content = document.getElementById("article-body-content");
   if (!content) return;
 
-  content.querySelectorAll("style").forEach((el) => el.remove());
+  content.querySelectorAll("style").forEach((el) => {
+    el.remove();
+  });
 
   content.querySelectorAll("*").forEach((el) => {
     cleanAttributes(el);
@@ -213,22 +415,15 @@ function postProcessContent(baseUrl, hideImages) {
     anchor.removeAttribute("onclick");
   });
 
-  content.querySelectorAll("img").forEach((img, index) => {
+  normalizePictureSources(content, baseUrl);
+
+  content.querySelectorAll("img").forEach((img) => {
     if (hideImages) {
       img.remove();
     } else {
-      if (index > 0) {
-        img.loading = "lazy";
-      }
-      if (baseUrl) {
-        const src = img.getAttribute("src");
-        if (src && !src.startsWith("http") && !src.startsWith("data:")) {
-          try {
-            img.src = new URL(src, baseUrl).href;
-          } catch (e) {
-            // continue
-          }
-        }
+      img.loading = "lazy";
+      if (!normalizeImageSource(img, baseUrl)) {
+        img.remove();
       }
     }
   });
@@ -362,7 +557,9 @@ function resetAudioPlayState() {
   const playButtons = document.querySelectorAll(
     ".audio-enclosure__play-button",
   );
-  playButtons.forEach((btn) => btn.classList.remove("playing"));
+  playButtons.forEach((btn) => {
+    btn.classList.remove("playing");
+  });
 }
 
 window.onload = () => {

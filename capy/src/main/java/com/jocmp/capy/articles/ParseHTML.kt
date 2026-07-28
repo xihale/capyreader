@@ -9,8 +9,11 @@ fun parseHtml(
     article: Article,
     hideImages: Boolean
 ): String {
+    val baseUrl = article.url?.toString() ?: article.siteURL ?: ""
+
     val json = buildJsonObject {
         put("url", article.url?.toString())
+        put("baseUrl", baseUrl)
         put("html", article.content)
         put("hideImages", hideImages)
     }

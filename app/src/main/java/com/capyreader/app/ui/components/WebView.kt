@@ -8,8 +8,10 @@ import android.webkit.WebView
 import android.webkit.WebView.HitTestResult.SRC_ANCHOR_TYPE
 import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -28,12 +30,15 @@ import com.capyreader.app.ui.articles.detail.byline
 import com.capyreader.app.ui.articles.displayFeedName
 import com.jocmp.capy.Article
 import com.jocmp.capy.articles.ArticleRenderer
-import com.jocmp.capy.common.DisplayTimeFormats
 import com.jocmp.capy.logging.CapyLog
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 import org.koin.core.component.KoinComponent
+
+private const val WEB_VIEW_ASSET_BASE_URL = "https://appassets.androidplatform.net/"
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -43,17 +48,49 @@ fun WebView(
     article: Article? = null,
     showImages: Boolean = true,
 ) {
+    val context = LocalContext.current
     val timeFormats = LocalTimeFormats.current
+    val preparedHtml by produceState<PreparedArticleHtml?>(
+        initialValue = null,
+        key1 = article,
+        key2 = showImages,
+    ) {
+        val currentArticle = article
+
+        value = if (currentArticle == null) {
+            null
+        } else {
+            withContext(Dispatchers.Default) {
+                state.prepareHtml(
+                    article = currentArticle,
+                    hideImages = !showImages,
+                    byline = currentArticle.byline(context, formats = timeFormats),
+                    feedName = currentArticle.displayFeedName(context),
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(article?.id) {
+        if (article != null) {
+            state.reset()
+        }
+    }
     AndroidView(
         modifier = modifier,
         factory = { state.webView },
         update = {
-            article?.let {
-                state.loadHtml(article, showImages, timeFormats)
-            }
+            preparedHtml?.let(state::loadHtml)
         }
     )
 }
+
+data class PreparedArticleHtml(
+    val articleId: String,
+    val html: String,
+    val baseUrl: String,
+    val contentHash: Int,
+)
 
 class AccompanistWebViewClient(
     private val assetLoader: WebViewAssetLoader,
@@ -158,6 +195,7 @@ class WebViewState(
 ) {
     private var htmlId: String? = null
     private var contentHash: Int = 0
+    private var baseUrl: String? = null
     private var currentAudioUrl: String? = null
     private var isAudioPlaying: Boolean = false
 
@@ -165,33 +203,45 @@ class WebViewState(
         loadEmpty()
     }
 
-    fun loadHtml(article: Article, showImages: Boolean, timeFormats: DisplayTimeFormats) {
-        val id = article.id
-        val hash = article.content.hashCode()
+    fun prepareHtml(article: Article, hideImages: Boolean, byline: String, feedName: String): PreparedArticleHtml {
+        val html = renderer.render(
+            article = article,
+            hideImages = hideImages,
+            byline = byline,
+            colors = colors,
+            feedName = feedName,
+        )
 
-        if (id == htmlId && hash == contentHash) {
+        val resolvedBaseUrl = article.url?.toString() ?: article.siteURL ?: WEB_VIEW_ASSET_BASE_URL
+
+        return PreparedArticleHtml(
+            articleId = article.id,
+            html = html,
+            baseUrl = resolvedBaseUrl,
+            contentHash = html.hashCode(),
+        )
+    }
+
+    fun loadHtml(preparedHtml: PreparedArticleHtml) {
+        val id = preparedHtml.articleId
+        val hash = preparedHtml.contentHash
+
+        if (id == htmlId && hash == contentHash && preparedHtml.baseUrl == baseUrl) {
             return
         }
 
         webView.isVerticalScrollBarEnabled = enableNativeScroll
         htmlId = id
         contentHash = hash
+        baseUrl = preparedHtml.baseUrl
 
         val client = webView.webViewClient as? AccompanistWebViewClient
-        client?.pageUrl = article.url?.toString()
-
-        val html = renderer.render(
-            article,
-            hideImages = !showImages,
-            byline = article.byline(context = webView.context, formats = timeFormats),
-            colors = colors,
-            feedName = article.displayFeedName(webView.context),
-        )
+        client?.pageUrl = preparedHtml.baseUrl
 
         webView.loadDataWithBaseURL(
-            null,
-            html,
-            null,
+            preparedHtml.baseUrl,
+            preparedHtml.html,
+            "text/html",
             "UTF-8",
             null,
         )
@@ -199,6 +249,8 @@ class WebViewState(
 
     fun reset() {
         htmlId = null
+        contentHash = 0
+        baseUrl = null
         loadEmpty()
     }
 
@@ -263,7 +315,7 @@ fun rememberWebViewState(
         )
     }
 
-    return remember {
+    val state = remember(enableNativeScroll) {
         val webViewInterface = WebViewInterface(
             navigateToMedia = { onNavigateToMedia(it) },
             onRequestLinkDialog = onRequestLinkDialog,
@@ -304,4 +356,12 @@ fun rememberWebViewState(
             }
         }
     }
+
+    LaunchedEffect(reset) {
+        if (reset != null) {
+            state.reset()
+        }
+    }
+
+    return state
 }
