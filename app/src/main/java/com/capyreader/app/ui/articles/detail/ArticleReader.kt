@@ -175,6 +175,8 @@ fun ScrollableWebView(webViewState: WebViewState, article: Article, showImages: 
 
     var lastScrollYPercent by rememberSaveable(article.id) { mutableFloatStateOf(0f) }
 
+    val statusBarHeight = LocalStableStatusBarHeight.current
+
     CornerTapGestureScroll(
         maxArticleHeight = maxHeight,
         scrollState = scrollState,
@@ -190,7 +192,7 @@ fun ScrollableWebView(webViewState: WebViewState, article: Article, showImages: 
                     }
             ) {
                 if (!pinToolbars) {
-                    Spacer(Modifier.height(ArticleBarDefaults.topBarOffset))
+                    Spacer(Modifier.height(statusBarHeight + ArticleBarDefaults.TopBarHeight))
                 }
                 WebView(
                     modifier = Modifier

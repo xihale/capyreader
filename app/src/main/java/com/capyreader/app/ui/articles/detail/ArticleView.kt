@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
@@ -23,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -30,6 +32,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
@@ -52,6 +55,8 @@ import com.capyreader.app.ui.components.pullrefresh.SwipeRefresh
 import com.capyreader.app.ui.components.LocalSnackbarHost
 import com.jocmp.capy.Article
 import org.koin.compose.koinInject
+
+internal val LocalStableStatusBarHeight = staticCompositionLocalOf { 0.dp }
 
 @Composable
 fun ArticleView(
@@ -171,10 +176,17 @@ fun ArticleView(
 
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val contentPadding = rememberContentPadding(pinToolbars)
+    // Read the initial status bar height from system insets once.
+    // We call the composable outside remember (which disallows @Composable calls),
+    // but cache the value so it never updates when system bars hide/show.
+    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val stableStatusBarHeight = remember { statusBarHeight }
+
+    val contentPadding = rememberContentPadding(pinToolbars, stableStatusBarHeight)
 
     CompositionLocalProvider(
         LocalSnackbarHost provides snackbarHostState,
+        LocalStableStatusBarHeight provides stableStatusBarHeight,
     ) {
         BoxWithConstraints(Modifier
             .fillMaxSize()
@@ -316,7 +328,7 @@ fun swipeIcon(
 }
 
 @Composable
-fun articleOpenLink(
+private fun articleOpenLink(
     article: Article,
 ): () -> Unit {
     val linkOpener = LocalLinkOpener.current
@@ -345,10 +357,13 @@ private data class SwipePreferences(
 )
 
 @Composable
-private fun rememberContentPadding(pinToolbars: Boolean): PaddingValues {
+private fun rememberContentPadding(
+    pinToolbars: Boolean,
+    statusBarHeight: Dp,
+): PaddingValues {
     return if (pinToolbars) {
         PaddingValues(
-            top = ArticleBarDefaults.topBarOffset,
+            top = statusBarHeight + ArticleBarDefaults.TopBarHeight,
             bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
         )
     } else {
