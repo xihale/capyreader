@@ -1,5 +1,6 @@
 package com.capyreader.app.ui.articles.detail
 
+import android.app.Activity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,6 +18,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -27,8 +29,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.paging.compose.LazyPagingItems
 import com.capyreader.app.common.AudioEnclosure
 import com.capyreader.app.common.Media
@@ -124,6 +129,25 @@ fun ArticleView(
     val pinToolbars by appPreferences.readerOptions.pinToolbars.collectChangesWithDefault()
     val scrollState = rememberArticleScrollState()
     val showToolBar = pinToolbars || !scrollState.isScrollingDown
+
+    val hideSystemStatusBar by appPreferences.readerOptions.hideStatusBar.collectChangesWithDefault()
+    val view = LocalView.current
+
+    DisposableEffect(hideSystemStatusBar, article.id) {
+        if (hideSystemStatusBar && !view.isInEditMode) {
+            val window = (view.context as Activity).window
+            val insetsController = WindowCompat.getInsetsController(window, view)
+            insetsController.hide(WindowInsetsCompat.Type.statusBars())
+        }
+
+        onDispose {
+            if (!view.isInEditMode) {
+                val window = (view.context as Activity).window
+                val insetsController = WindowCompat.getInsetsController(window, view)
+                insetsController.show(WindowInsetsCompat.Type.statusBars())
+            }
+        }
+    }
 
     LaunchedEffect(article.id) {
         scrollState.reset()

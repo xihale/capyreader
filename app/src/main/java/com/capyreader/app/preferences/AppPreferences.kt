@@ -134,6 +134,9 @@ class AppPreferences(context: Context) {
 
         val titleFollowsBodyFont: Preference<Boolean>
             get() = preferenceStore.getBoolean("article_title_follows_body_font", false)
+
+        val hideStatusBar: Preference<Boolean>
+            get() = preferenceStore.getBoolean("article_hide_status_bar", false)
     }
 
     class ArticleListOptions(private val preferenceStore: PreferenceStore) {

@@ -45,6 +45,7 @@ fun DisplaySettingsPanel(
     onNavigateToArticleList: () -> Unit = {},
 ) {
     val pinArticleBars by viewModel.pinArticleBars.collectChangesWithCurrent()
+    val hideStatusBar by viewModel.hideStatusBar.collectChangesWithCurrent()
     val improveTalkback by viewModel.improveTalkback.collectChangesWithCurrent()
     val markReadButtonPosition by viewModel.markReadButtonPosition.collectChangesWithCurrent()
     val appTheme by viewModel.appPreferences.appTheme.collectChangesWithCurrent()
@@ -61,6 +62,8 @@ fun DisplaySettingsPanel(
         updatePinArticleBars = viewModel::updatePinArticleBars,
         pinArticleBars = pinArticleBars,
         enablePinArticleBars = !improveTalkback,
+        hideStatusBar = hideStatusBar,
+        updateHideStatusBar = viewModel::updateHideStatusBar,
         updateImageVisibility = viewModel::updateImageVisibility,
         imageVisibility = viewModel.imageVisibility,
         markReadButtonPosition = markReadButtonPosition,
@@ -83,6 +86,8 @@ fun DisplaySettingsPanelView(
     updatePinArticleBars: (enable: Boolean) -> Unit,
     pinArticleBars: Boolean,
     enablePinArticleBars: Boolean,
+    hideStatusBar: Boolean,
+    updateHideStatusBar: (enable: Boolean) -> Unit,
     imageVisibility: ReaderImageVisibility,
     markReadButtonPosition: MarkReadPosition,
     updateImageVisibility: (option: ReaderImageVisibility) -> Unit,
@@ -162,6 +167,13 @@ fun DisplaySettingsPanelView(
                     title = stringResource(R.string.settings_options_reader_pin_top_toolbar),
                 )
             }
+            RowItem {
+                TextSwitch(
+                    checked = hideStatusBar,
+                    onCheckedChange = updateHideStatusBar,
+                    title = stringResource(R.string.settings_options_reader_hide_status_bar),
+                )
+            }
         }
 
         FormSection(title = stringResource(R.string.settings_display_miscellaneous_title)) {
@@ -222,6 +234,8 @@ private fun DisplaySettingsPanelViewPreview() {
                 appPreferences = null,
                 updatePinArticleBars = {},
                 pinArticleBars = false,
+                hideStatusBar = false,
+                updateHideStatusBar = {},
                 updateImageVisibility = {},
                 imageVisibility = ReaderImageVisibility.ALWAYS_SHOW,
                 enablePinArticleBars = false,

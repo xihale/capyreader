@@ -59,6 +59,8 @@ class DisplaySettingsViewModel(
 
     val pinArticleBars = appPreferences.readerOptions.pinToolbars
 
+    val hideStatusBar = appPreferences.readerOptions.hideStatusBar
+
     var imageVisibility by mutableStateOf(appPreferences.readerOptions.imageVisibility.get())
         private set
 
@@ -83,6 +85,10 @@ class DisplaySettingsViewModel(
 
     fun updatePinArticleBars(pinBars: Boolean) {
         appPreferences.readerOptions.pinToolbars.set(pinBars)
+    }
+
+    fun updateHideStatusBar(hide: Boolean) {
+        appPreferences.readerOptions.hideStatusBar.set(hide)
     }
 
     fun updateFontScale(fontScale: ArticleListFontScale) {
