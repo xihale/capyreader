@@ -43,6 +43,7 @@ fun LinearElement.ids(): Set<String> =
         is LinearBlockQuote -> ids
         is LinearImage -> ids
         is LinearListItem -> ids
+        is LinearMath -> emptySet()
         is LinearText -> ids
         is LinearTable -> ids
         is LinearVideo -> ids
@@ -51,6 +52,7 @@ fun LinearElement.ids(): Set<String> =
 private fun LinearElement.collectImageUrls(target: MutableSet<String>) {
     when (this) {
         is LinearAudio,
+        is LinearMath,
         is LinearText,
         is LinearVideo,
         -> Unit
@@ -451,3 +453,10 @@ data class LinearAudioSource(
     val uri: String,
     val mimeType: String?,
 )
+
+/**
+ * Represents a display-mode math formula rendered as its own block
+ */
+data class LinearMath(
+    val tex: String,
+) : LinearElement

@@ -55,4 +55,23 @@ class StripJunkTagsTest {
         stripJunkTags(doc("*").first(), doc)
         assertEquals(1, doc("iframe[src^=\"https://www.youtube.com\"]").length)
     }
+
+    @Test
+    fun `keeps mathjax tex scripts while stripping other scripts`() {
+        val doc =
+            Doc.load(
+                """
+            <div>
+              <p>Euler: <script type="math/tex">e^{i\pi} + 1 = 0</script> indeed.</p>
+              <script type="math/tex; mode=display">\int_0^1 x^2\,dx</script>
+              <script type="text/javascript">alert('hi!');</script>
+            </div>
+            """,
+                isDocument = false,
+            )
+
+        stripJunkTags(doc("*").first(), doc)
+        assertEquals(2, doc("script[type^=math/tex]").length)
+        assertEquals(0, doc("script[type=text/javascript]").length)
+    }
 }

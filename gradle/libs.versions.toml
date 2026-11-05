@@ -3,6 +3,7 @@ androidx-paging = "3.5.1"
 media3 = "1.11.1"
 coil = "3.6.3"
 coroutines = "1.11.0"
+jlatexmath-android = "0.2.0"
 glance-material3 = "1.2.0"
 kotlin = "2.4.20"
 ksp = "2.3.12"
@@ -61,6 +62,7 @@ coil-gif = { module = "io.coil-kt.coil3:coil-gif", version.ref = "coil" }
 coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
 coil-svg = { module = "io.coil-kt.coil3:coil-svg", version.ref = "coil" }
 coil-video = { module = "io.coil-kt.coil3:coil-video", version.ref = "coil" }
+jlatexmath-android = { module = "ru.noties:jlatexmath-android", version.ref = "jlatexmath-android" }
 converter-scalars = { module = "com.squareup.retrofit2:converter-scalars", version.ref = "retrofit" }
 firebase-crashlytics = { module = "com.google.firebase:firebase-crashlytics", version = "20.1.1" }
 jsoup = { module = "org.jsoup:jsoup", version = "1.23.2" }

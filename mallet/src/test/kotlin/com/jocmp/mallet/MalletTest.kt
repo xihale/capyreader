@@ -1796,4 +1796,249 @@ class MalletTest {
         assertEquals(Mallet.MAX_ELEMENTS + 1, truncation.elementCount)
         assertEquals(Mallet.MAX_ELEMENTS, result.elements.size)
     }
+
+    private fun katexSpan(tex: String) =
+        """
+        <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><annotation encoding="application/x-tex">$tex</annotation></mrow></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="mord">mangled</span></span></span>
+        """.trimIndent()
+
+    @Test
+    fun `inline multi-row matrix keeps TeX annotation inside flowing text`() {
+        val tex = "\\begin{pmatrix} F_{n+1} \\\\ F_n \\end{pmatrix}=\\begin{pmatrix} 1 & 1 \\\\ 1 & 0 \\end{pmatrix}"
+        val html =
+            """
+            <html><body>
+            <p>递推 ${katexSpan(tex)} 后续文字。</p>
+            </body></html>
+            """.trimIndent()
+
+        val result = Mallet.flatten(html, baseUrl).getOrThrow()
+
+        assertEquals(1, result.elements.size)
+        val text = result.elements[0] as LinearText
+        val annotation = text.annotations.first { it.data is LinearTextAnnotationMath }
+        val math = annotation.data as LinearTextAnnotationMath
+        assertEquals(tex, math.tex)
+        // The annotation range keeps the TeX as alternate text; Compose swaps it for the bitmap.
+        assertEquals(tex, text.text.substring(annotation.start, annotation.endExclusive))
+        assertTrue(!text.text.contains("mangled"))
+    }
+
+    @Test
+    fun `mathjax v2 script tags become math elements`() {
+        val inlineTex = "e^{i\\pi} + 1 = 0"
+        val displayTex = "\\int_0^1 x^2\\,dx = \\frac{1}{3}"
+        val html =
+            """
+            <html><body>
+            <p> Euler: <script type="math/tex">$inlineTex</script> indeed.</p>
+            <script type="math/tex; mode=display">$displayTex</script>
+            <p>Regular scripts stay inert: <script type="text/javascript">alert(1)</script></p>
+            </body></html>
+            """.trimIndent()
+
+        val result = Mallet.flatten(html, baseUrl).getOrThrow()
+
+        val display = result.elements.filterIsInstance<LinearMath>().single()
+        assertEquals(displayTex, display.tex)
+
+        val paragraph = result.elements.filterIsInstance<LinearText>().first()
+        val annotation = paragraph.annotations.first { it.data is LinearTextAnnotationMath }
+        assertEquals(inlineTex, (annotation.data as LinearTextAnnotationMath).tex)
+        assertTrue(paragraph.text.contains("Euler:"))
+        assertTrue(paragraph.text.contains("indeed."))
+    }
+
+    @Test
+    fun `bare math with annotation extracts TeX`() {
+        val tex = "a^2 + b^2 = c^2"
+        val html =
+            """
+            <html><body>
+            <p>Pythagoras: <math><semantics><mrow><annotation encoding="application/x-tex">$tex</annotation></mrow></semantics></math> holds.</p>
+            </body></html>
+            """.trimIndent()
+
+        val result = Mallet.flatten(html, baseUrl).getOrThrow()
+
+        val text = result.elements.single() as LinearText
+        val math = text.annotations.map { it.data }.filterIsInstance<LinearTextAnnotationMath>().single()
+        assertEquals(tex, math.tex)
+        assertTrue(!text.text.contains("holds.".repeat(2)))
+    }
+
+    @Test
+    fun `raw TeX delimiters in prose become math annotations`() {
+        val html =
+            """
+            <html><body>
+            <p>Sum: ${'$'}${'$'}\sum_{i=1}^n i${'$'}${'$'} done. Pair: \(a \times b\) and \[c + d\] end.</p>
+            </body></html>
+            """.trimIndent()
+
+        val result = Mallet.flatten(html, baseUrl).getOrThrow()
+
+        val text = result.elements.single() as LinearText
+        val maths = text.annotations.map { it.data }.filterIsInstance<LinearTextAnnotationMath>()
+        assertEquals(3, maths.size)
+        assertEquals("\\sum_{i=1}^n i", maths[0].tex)
+        assertEquals("a \\times b", maths[1].tex)
+        assertEquals("c + d", maths[2].tex)
+        assertTrue(text.text.contains("Sum:"))
+        assertTrue(text.text.contains("done."))
+        assertTrue(text.text.contains("end."))
+    }
+
+    @Test
+    fun `unterminated raw delimiter stays plain text`() {
+        val html =
+            """
+            <html><body><p>Cost: ${'$'}${'$'}5 each, formula \(x + y never closed.</p></body></html>
+            """.trimIndent()
+
+        val result = Mallet.flatten(html, baseUrl).getOrThrow()
+
+        val text = result.elements.single() as LinearText
+        assertTrue(text.annotations.none { it.data is LinearTextAnnotationMath })
+        assertTrue(text.text.contains("formula"))
+    }
+
+    @Test
+    fun `raw delimiters inside pre blocks stay literal`() {
+        val html =
+            """
+            <html><body>
+            <pre><code>echo "${'$'}${'$'}1${'$'}${'$'}" and \(x\)</code></pre>
+            </body></html>
+            """.trimIndent()
+
+        val result = Mallet.flatten(html, baseUrl).getOrThrow()
+
+        assertTrue(result.elements.filterIsInstance<LinearMath>().isEmpty())
+        val code = result.elements.filterIsInstance<LinearText>().single()
+        assertTrue(code.annotations.none { it.data is LinearTextAnnotationMath })
+        assertTrue(code.text.contains("\\(x\\)"))
+    }
+
+    @Test
+    fun `display math becomes LinearMath block with TeX source`() {
+        val tex = "\\lambda^2 - \\lambda - 1 = 0"
+        val html =
+            """
+            <html><body>
+            <p>Before</p>
+            <span class="katex-display">${katexSpan(tex)}</span>
+            <p>After</p>
+            </body></html>
+            """.trimIndent()
+
+        val result = Mallet.flatten(html, baseUrl).getOrThrow().elements
+
+        assertEquals(3, result.size)
+        val math = result[1] as LinearMath
+        assertEquals(tex, math.tex)
+    }
+
+    @Test
+    fun `display math mangled katex-html text is stripped`() {
+        val html =
+            """
+            <html><body>
+            <span class="katex-display">${katexSpan("x = 1")}</span>
+            </body></html>
+            """.trimIndent()
+
+        val result = Mallet.flatten(html, baseUrl).getOrThrow().elements
+
+        assertEquals(1, result.size)
+        assertTrue(result[0] is LinearMath)
+    }
+
+    @Test
+    fun `inline math becomes annotation covering TeX text`() {
+        val tex = "F_n = F_{n-1} + F_{n-2}"
+        val html =
+            """
+            <html><body><p>Given ${katexSpan(tex)} we recurse.</p></body></html>
+            """.trimIndent()
+
+        val result = Mallet.flatten(html, baseUrl).getOrThrow().elements
+
+        assertEquals(1, result.size)
+        val text = result[0] as LinearText
+        val mathAnnotation = text.annotations.map { it.data }.filterIsInstance<LinearTextAnnotationMath>().single()
+        assertEquals(tex, mathAnnotation.tex)
+        val start = text.text.indexOf(tex)
+        val annotation = text.annotations.first { it.data is LinearTextAnnotationMath }
+        assertEquals(start, annotation.start)
+        assertEquals(start + tex.length - 1, annotation.end)
+        assertTrue(!text.text.contains("mangled"))
+    }
+
+    @Test
+    fun `katex without TeX annotation falls back to plain text`() {
+        val html =
+            """
+            <html><body><p>x<span class="katex"><span class="katex-html" aria-hidden="true">y</span></span>z</p></body></html>
+            """.trimIndent()
+
+        val result = Mallet.flatten(html, baseUrl).getOrThrow().elements
+
+        assertEquals(1, result.size)
+        val text = result[0] as LinearText
+        assertEquals("xyz", text.text)
+        assertTrue(text.annotations.none { it.data is LinearTextAnnotationMath })
+    }
+
+    @Test
+    fun `katex annotation stripped of encoding attribute still extracts TeX`() {
+        val tex = "\\sqrt{5}"
+        val html =
+            """
+            <html><body><p>${katexSpan(tex)}</p></body></html>
+            """.trimIndent().replace(
+                "<annotation encoding=\"application/x-tex\">$tex</annotation>",
+                "<annotation>$tex</annotation>",
+            )
+
+        val result = Mallet.flatten(html, baseUrl).getOrThrow().elements
+
+        assertEquals(1, result.size)
+        val text = result[0] as LinearText
+        val math = text.annotations.map { it.data }.filterIsInstance<LinearTextAnnotationMath>().single()
+        assertEquals(tex, math.tex)
+    }
+
+    @Test
+    fun `inline math inside blockquote keeps annotation`() {
+        val tex = "e^{i\\pi} + 1 = 0"
+        val html =
+            """
+            <html><body><blockquote>${katexSpan(tex)}</blockquote></body></html>
+            """.trimIndent()
+
+        val result = Mallet.flatten(html, baseUrl).getOrThrow().elements
+
+        assertEquals(1, result.size)
+        val quote = result[0] as LinearBlockQuote
+        val text = quote.content[0] as LinearText
+        assertEquals(tex, text.text)
+        val annotation = text.annotations.first { it.data is LinearTextAnnotationMath }
+        assertEquals(0, annotation.start)
+        assertEquals(tex.length - 1, annotation.end)
+    }
+
+    @Test
+    fun `display math inside blockquote is emitted as sibling`() {
+        val tex = "e^{i\\pi} + 1 = 0"
+        val html =
+            """
+            <html><body><blockquote><span class="katex-display">${katexSpan(tex)}</span></blockquote></body></html>
+            """.trimIndent()
+
+        val result = Mallet.flatten(html, baseUrl).getOrThrow().elements
+
+        assertEquals(1, result.size)
+        assertTrue(result[0] is LinearMath)
+    }
 }

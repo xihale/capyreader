@@ -42,3 +42,11 @@
 -keep class com.jocmp.** { *; }
 
 -dontwarn com.jocmp.**
+
+# JLaTeXMath resolves macros (\\frac, \\sum, \\begin{pmatrix}, ...) via
+# reflection on registered _macro methods and via class names read from
+# its assets XML at runtime. Without keep rules R8 renames those members
+# and formula parsing crashes with NPE on Method.invoke.
+-keep class org.scilab.forge.jlatexmath.** { *; }
+-keep class ru.noties.jlatexmath.** { *; }
+-dontwarn org.scilab.forge.jlatexmath.**

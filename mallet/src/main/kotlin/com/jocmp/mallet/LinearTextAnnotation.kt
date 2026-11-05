@@ -52,3 +52,7 @@ data object LinearTextAnnotationCode : LinearTextAnnotationData
 data class LinearTextAnnotationLink(
     val href: String,
 ) : LinearTextAnnotationData
+
+data class LinearTextAnnotationMath(
+    val tex: String,
+) : LinearTextAnnotationData

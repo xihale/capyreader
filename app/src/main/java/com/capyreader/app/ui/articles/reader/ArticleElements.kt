@@ -72,6 +72,7 @@ import com.jocmp.mallet.LinearAudio
 import com.jocmp.mallet.LinearBlockQuote
 import com.jocmp.mallet.LinearElement
 import com.jocmp.mallet.LinearImage
+import com.jocmp.mallet.LinearMath
 import com.jocmp.mallet.LinearListItem
 import com.jocmp.mallet.LinearTable
 import com.jocmp.mallet.LinearTableCellItemType
@@ -136,6 +137,11 @@ fun ArticleElement(
             idToIndex = idToIndex,
             actions = actions,
             allowHorizontalScroll = allowHorizontalScroll,
+            modifier = modifier,
+        )
+
+        is LinearMath -> MathElement(
+            math = element,
             modifier = modifier,
         )
 
@@ -233,6 +239,7 @@ fun TextElement(
         Text(
             text = annotated,
             softWrap = softWrap,
+            inlineContent = linearText.rememberInlineMathContents(),
             onTextLayout = { layout = it },
             modifier = modifier.longPressLink(
                 enabled = links.isNotEmpty(),

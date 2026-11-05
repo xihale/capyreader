@@ -94,7 +94,9 @@ private class Flattening {
                     // Keep track of total text size for truncation
                     charCount += node.wholeText.length
 
-                    if (blockStyle.shouldSoftWrap) {
+                    if (blockStyle.shouldSoftWrap && containsRawTeXDelimiters(node.wholeText)) {
+                        appendTextWithRawTeX(node.wholeText, blockStyle)
+                    } else if (blockStyle.shouldSoftWrap) {
                         node.appendCorrectlyNormalizedWhiteSpace(
                             linearTextBuilder,
                         )
@@ -112,6 +114,67 @@ private class Flattening {
                         // Element is not supposed to be shown because javascript and/or tracking
                         node = node.nextSibling()
                         continue
+                    }
+
+                    if (element.hasClass("katex-display")) {
+                        val displayTex = katexTex(element)
+
+                        if (displayTex != null) {
+                            finalizeAndAddCurrentElement(blockStyle)
+
+                            addLimited(LinearMath(tex = displayTex))
+
+                            node = node.nextSibling()
+                            continue
+                        }
+                        // No TeX annotation: fall through and flatten as text
+                    }
+
+                    if (element.hasClass("katex")) {
+                        val inlineTex = katexTex(element)?.replace(Regex("\\s+"), " ")
+
+                        if (!inlineTex.isNullOrEmpty()) {
+                            appendInlineMath(inlineTex)
+
+                            node = node.nextSibling()
+                            continue
+                        }
+                        // No TeX annotation (e.g. html-only KaTeX output): keep the
+                        // legacy behavior of flattening the spans into text
+                    }
+
+                    // MathJax v2 pre-rendered markup keeps the TeX source in a script tag
+                    // (scripts are stripped by Mercury only for the extraction path; feed
+                    // content reaches mallet untouched).
+                    if (element.isTag("script") && element.attr("type").startsWith("math/tex", ignoreCase = true)) {
+                        val tex = element.data().trim()
+
+                        if (tex.isNotEmpty()) {
+                            if (element.attr("type").contains("mode=display", ignoreCase = true)) {
+                                finalizeAndAddCurrentElement(blockStyle)
+
+                                addLimited(LinearMath(tex = tex))
+                            } else {
+                                appendInlineMath(tex.replace(Regex("\\s+"), " "))
+                            }
+
+                            node = node.nextSibling()
+                            continue
+                        }
+                    }
+
+                    // Temml and other MathML-first renderers emit bare <math> elements that
+                    // carry the TeX source in an annotation. KaTeX spans are consumed above,
+                    // so this only fires when the wrapper class is missing entirely.
+                    if (element.isTag("math")) {
+                        val mathmlTex = katexTex(element)?.replace(Regex("\\s+"), " ")
+
+                        if (!mathmlTex.isNullOrEmpty()) {
+                            appendInlineMath(mathmlTex)
+
+                            node = node.nextSibling()
+                            continue
+                        }
                     }
 
                     when (element.tagName()) {
@@ -745,6 +808,63 @@ private class Flattening {
         linearTextBuilder.append(c)
     }
 
+    private fun appendInlineMath(tex: String) {
+        val index = linearTextBuilder.push(LinearTextAnnotationMath(tex))
+        linearTextBuilder.append(tex)
+        linearTextBuilder.pop(index)
+    }
+
+    /**
+     * Splits plain text on `$$...$$`, `\(...\)` and `\[...\]` and emits the
+     * enclosed TeX as math annotations. Covers sites that ship raw TeX and
+     * render it client-side, so feeds show formulas instead of markup.
+     * Delimiters are only scanned in soft-wrapping (prose) contexts, never in
+     * preformatted/code blocks where they may be literal content.
+     */
+    private fun appendTextWithRawTeX(raw: String, blockStyle: LinearTextBlockStyle) {
+        var cursor = 0
+
+        while (cursor < raw.length) {
+            val open = RAW_TEX_DELIMITERS
+                .mapNotNull { (opener, closer) ->
+                    raw.indexOf(opener, cursor).takeIf { it >= 0 }?.let { Triple(it, opener, closer) }
+                }
+                .minByOrNull { it.first }
+
+            if (open == null) {
+                appendNormalizedWhiteSpace(linearTextBuilder, raw.substring(cursor))
+                return
+            }
+
+            val (openIndex, opener, closer) = open
+            val contentStart = openIndex + opener.length
+            val closeIndex = raw.indexOf(closer, contentStart)
+
+            if (closeIndex < 0) {
+                // Unterminated delimiter: keep everything as plain text
+                appendNormalizedWhiteSpace(linearTextBuilder, raw.substring(cursor))
+                return
+            }
+
+            if (openIndex > cursor) {
+                appendNormalizedWhiteSpace(linearTextBuilder, raw.substring(cursor, openIndex))
+            }
+
+            val tex = raw.substring(contentStart, closeIndex).trim().replace(Regex("\\s+"), " ")
+
+            if (tex.isEmpty()) {
+                appendNormalizedWhiteSpace(
+                    linearTextBuilder,
+                    raw.substring(openIndex, closeIndex + closer.length),
+                )
+            } else {
+                appendInlineMath(tex)
+            }
+
+            cursor = closeIndex + closer.length
+        }
+    }
+
     private fun pushId(id: String) {
         idHolder(id)
     }
@@ -812,6 +932,20 @@ private class Flattening {
         val style = element.attr("style")
         return style.contains("display:") && style.contains("none")
     }
+
+    /**
+     * Server-rendered KaTeX markup embeds the original TeX source in a MathML annotation,
+     * e.g. <annotation encoding="application/x-tex">\frac{1}{2}</annotation>.
+     * Mercury's attribute whitelist strips `encoding`, so also match bare annotations.
+     */
+    private fun katexTex(element: Element): String? =
+        (
+            element.selectFirst("annotation[encoding=application/x-tex]")
+                ?: element.selectFirst("annotation")
+            )
+            ?.wholeText()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
 
     private fun getImageSource(
         baseUrl: String,
@@ -1006,16 +1140,32 @@ private class Flattening {
     }
 }
 
+private val RAW_TEX_DELIMITERS: List<Pair<String, String>> =
+    listOf(
+        "$$" to "$$",
+        "\\(" to "\\)",
+        "\\[" to "\\]",
+    )
+
+private fun containsRawTeXDelimiters(text: String): Boolean =
+    text.contains("$$") || text.contains("\\(") || text.contains("\\[")
+
+private fun Element.isTag(name: String): Boolean = tagName() == name
+
 /**
  * Can't use JSoup's text() method because that strips invisible characters
  * such as ZWNJ which are crucial for several languages.
  */
 fun TextNode.appendCorrectlyNormalizedWhiteSpace(builder: LinearTextBuilder) {
+    appendNormalizedWhiteSpace(builder, wholeText)
+}
+
+fun appendNormalizedWhiteSpace(builder: LinearTextBuilder, text: String) {
     // Inline loop as an optimization to avoid String allocations
     // Avoid allocating temporary strings at all cost during this iteration
     // as it can become very memory intensive when parsing a large full text
     // html document.
-    wholeText
+    text
         .codePoints()
         .forEach { codePoint ->
             // Want to drop collapsible whitespace.
