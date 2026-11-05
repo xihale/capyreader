@@ -37,6 +37,22 @@ Fullscreen goes through `WebChromeClient.onShowCustomView` into a `Dialog`. Embe
 
 - <https://developers.google.com/youtube/terms/required-minimum-functionality>
 
+## Math
+
+Math formulas render natively. Detection is deliberately generalized — the TeX annotation is the reliable signal, wrapper class names are conveniences:
+
+- KaTeX (server-rendered, the common case): mallet intercepts `.katex-display` → `LinearMath(tex)` blocks and inline `.katex` → `LinearTextAnnotationMath` annotations. Both KaTeX span trees are dropped, so no duplicated/mangled text.
+- Bare `<math>` with a TeX `annotation` (Temml, class-stripped KaTeX) → inline annotation.
+- MathJax v2: `<script type="math/tex">` (inline) and `; mode=display` (block). Mercury strips `script` on the extraction path, but exempts `script[type^=math/tex]`; feed content reaches mallet untouched.
+- Raw TeX delimiters in prose — `$$...$$`, `\(...\)`, `\[...\]` — become inline annotations. Only scanned in soft-wrapping contexts, never in `pre`/code blocks. Single `$` is deliberately not a delimiter (prices).
+- Mercury's attribute whitelist strips `encoding`, so annotation matching must not rely on it (bare `annotation` fallback).
+- No TeX source at all (html-only KaTeX, MathJax v3 SVG) → legacy flatten-as-text behavior.
+- `MathRenderer` (app) parses TeX with JLaTeXMath (GPL-2.0+, license-compatible) to transparent bitmaps, cached by tex+size+color+style with a negative cache for failures; rendering happens on `Dispatchers.Default`. Guards: TeX length cap (4000), bitmap side clamp (3072, re-rendered at scaled size), and one scrub retry that strips KaTeX-only commands (`\label`, `\tag`, `\nonumber`, `\notag`, `\qedhere`, `\allowbreak`) — regexes must escape `}` for Android ICU (`[^}]*\}`), the JVM tolerates bare `}` and Robolectric hides the bug.
+- **Release builds require the jlatexmath keep rules in `app/proguard-rules.pro`**: jlatexmath resolves macros (`\frac`, `\sum`, `\sqrt`, matrix environments...) reflectively via registered `_macro` methods, and R8 renames those members without a keep rule. Symptom: only macros-free formulas render; everything else shows raw TeX with `NullPointerException ... Method.invoke on a null object reference` in logcat under an `r8-map-id` frame. Same APK rendered fine on an API 31 emulator and failed on an Android 16 device — don't trust an emulator green run for minified builds; verify R8 builds on the target device.
+- Display math: `MathElement` image block, `ContentScale.Inside` so small formulas don't upscale. Inline math: `InlineTextContent` placeholders keyed by `inlineMathAnnotations()` tags — `toAnnotatedString` and `rememberInlineMathContents` must agree on those tags. Placeholder align is `TextCenter`; px→sp keeps formulas scaled with the reader font-size preference.
+- Failure mode for unparseable TeX (e.g. `\color`, `\bm`): raw TeX source shows in monospace.
+- Local account note: feed sync may purge rows mid-testing; inject test articles with airplane mode on and verify the row still exists before blaming the renderer.
+
 ## Gaps
 
 - Non-YouTube iframe embeds (Instagram, Bluesky, Vimeo, Spotify) are dropped at parse time, not just unrendered — `parseIframeVideo` only emits for YouTube. The blockquote form of an Instagram embed survives as quoted fallback text. These all worked under the WebView.
