@@ -6,8 +6,12 @@ import com.jocmp.capy.ArticleFilter
 import com.jocmp.capy.InMemoryDataStore
 import com.jocmp.capy.InMemoryDatabaseProvider
 import com.jocmp.capy.accounts.AddFeedResult
+import com.jocmp.capy.common.TimeHelpers.nowUTC
+import com.jocmp.capy.common.UnauthorizedError
 import com.jocmp.capy.db.Database
+import com.jocmp.capy.fixtures.ArticleFixture
 import com.jocmp.capy.fixtures.FeedFixture
+import com.jocmp.capy.persistence.ArticleRecords
 import com.jocmp.capy.persistence.EnclosureRecords
 import com.jocmp.minifluxclient.Category
 import com.jocmp.minifluxclient.CreateCategoryRequest
@@ -30,11 +34,14 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import kotlinx.coroutines.test.runTest
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Test
 import retrofit2.Response
 import java.net.SocketTimeoutException
 import kotlin.test.BeforeTest
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class MinifluxAccountDelegateTest {
@@ -241,6 +248,46 @@ class MinifluxAccountDelegateTest {
     }
 
     @Test
+    fun refresh_skipsArticlesPastAutoDeleteCutoff() = runTest {
+        val starredReadArticle = vergeArticle.copy(id = 4718104686, starred = true)
+
+        coEvery { miniflux.feeds() }.returns(Response.success(feeds))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+        coEvery { miniflux.entries(starred = true, limit = 250, offset = 0) }.returns(
+            Response.success(EntryResultSet(total = 1, entries = listOf(starredReadArticle)))
+        )
+        coEvery { miniflux.entries(status = EntryStatus.UNREAD.value, limit = 250, offset = 0) }.returns(
+            Response.success(EntryResultSet(total = 1, entries = listOf(arsTechnicaArticle)))
+        )
+        coEvery {
+            miniflux.entries(
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = null,
+            )
+        }.returns(
+            Response.success(
+                EntryResultSet(
+                    total = 3,
+                    entries = listOf(arsTechnicaArticle, vergeArticle, starredReadArticle)
+                )
+            )
+        )
+
+        delegate.refresh(ArticleFilter.default(), cutoffDate = nowUTC())
+
+        val articleRecords = ArticleRecords(database)
+
+        assertNotNull(articleRecords.find(arsTechnicaArticle.id.toString()))
+        assertNotNull(articleRecords.find(starredReadArticle.id.toString()))
+        assertNull(articleRecords.find(vergeArticle.id.toString()))
+    }
+
+    @Test
     fun refresh_IOException() = runTest {
         val networkError = SocketTimeoutException("Network timeout")
         coEvery { miniflux.feeds() }.throws(networkError)
@@ -248,6 +295,102 @@ class MinifluxAccountDelegateTest {
         val result = delegate.refresh(ArticleFilter.default())
 
         assertEquals(result, Result.failure(networkError))
+    }
+
+    @Test
+    fun refresh_fetchesMissingUnreadEntries() = runTest {
+        coEvery { miniflux.feeds() }.returns(Response.success(feeds))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+        coEvery { miniflux.entries(starred = true, limit = 250, offset = 0) }.returns(
+            Response.success(EntryResultSet(total = 0, entries = emptyList()))
+        )
+        coEvery { miniflux.entries(status = EntryStatus.UNREAD.value, limit = 250, offset = 0) }.returns(
+            Response.success(EntryResultSet(total = 1, entries = listOf(arsTechnicaArticle)))
+        )
+        coEvery {
+            miniflux.entries(
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = null,
+            )
+        }.returns(Response.success(EntryResultSet(total = 0, entries = emptyList())))
+        coEvery { miniflux.entry(arsTechnicaArticle.id) }.returns(Response.success(arsTechnicaArticle))
+
+        delegate.refresh(ArticleFilter.default())
+
+        val article = ArticleRecords(database).find(arsTechnicaArticle.id.toString())
+
+        assertNotNull(article)
+        assertEquals(expected = false, actual = article.read)
+    }
+
+    @Test
+    fun refresh_overlapsChangedAfterWithLastRefresh() = runTest {
+        val preferences = AccountPreferences(InMemoryDataStore())
+        val lastRefreshedAt = nowUTC().minusHours(1).toEpochSecond()
+        preferences.lastRefreshedAt.set(lastRefreshedAt)
+        delegate = MinifluxAccountDelegate(database, miniflux, preferences)
+
+        coEvery { miniflux.feeds() }.returns(Response.success(feeds))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+        coEvery { miniflux.entries(starred = true, limit = 250, offset = 0) }.returns(
+            Response.success(EntryResultSet(total = 0, entries = emptyList()))
+        )
+        coEvery { miniflux.entries(status = EntryStatus.UNREAD.value, limit = 250, offset = 0) }.returns(
+            Response.success(EntryResultSet(total = 0, entries = emptyList()))
+        )
+        coEvery {
+            miniflux.entries(
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = lastRefreshedAt - 300,
+            )
+        }.returns(Response.success(EntryResultSet(total = 0, entries = emptyList())))
+
+        val startedAt = nowUTC().toEpochSecond()
+        val result = delegate.refresh(ArticleFilter.default())
+        val finishedAt = nowUTC().toEpochSecond()
+
+        assertTrue(result.isSuccess)
+        assertTrue(preferences.lastRefreshedAt.get() in startedAt..finishedAt)
+    }
+
+    @Test
+    fun refresh_failedEntriesResponse() = runTest {
+        val preferences = AccountPreferences(InMemoryDataStore())
+        delegate = MinifluxAccountDelegate(database, miniflux, preferences)
+        val existingArticle = ArticleFixture(database).create(
+            feed = feedFixture.create(feedID = arsTechnicaFeed.id.toString()),
+            read = false,
+        )
+
+        coEvery { miniflux.feeds() }.returns(Response.success(feeds))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+        coEvery { miniflux.entries(starred = true, limit = 250, offset = 0) }.returns(
+            Response.success(EntryResultSet(total = 0, entries = emptyList()))
+        )
+        coEvery { miniflux.entries(status = EntryStatus.UNREAD.value, limit = 250, offset = 0) }.returns(
+            Response.error(502, "Bad Gateway".toResponseBody())
+        )
+
+        val result = delegate.refresh(ArticleFilter.default())
+
+        assertTrue(result.isFailure)
+        assertEquals(expected = 0L, actual = preferences.lastRefreshedAt.get())
+        assertEquals(
+            expected = false,
+            actual = ArticleRecords(database).find(existingArticle.id)?.read
+        )
     }
 
     @Test
@@ -361,6 +504,39 @@ class MinifluxAccountDelegateTest {
         val result = delegate.addFeed(url = url, folderTitles = emptyList(), title = "")
 
         assertTrue(result is AddFeedResult.Failure)
+    }
+
+    @Test
+    fun addFeed_failedEntriesResponse() = runTest {
+        val url = "https://wheresyoured.at/feed"
+        val feedID = 2819820L
+
+        coEvery {
+            miniflux.createFeed(CreateFeedRequest(feed_url = url, category_id = null))
+        } returns Response.success(CreateFeedResponse(feed_id = feedID))
+        coEvery { miniflux.feed(feedID) }.returns(Response.success(arsTechnicaFeed))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+        coEvery { miniflux.entries(starred = true, limit = any(), offset = any()) }.returns(
+            Response.error(502, "Bad Gateway".toResponseBody())
+        )
+        coEvery { miniflux.entries(status = EntryStatus.UNREAD.value, limit = any(), offset = any()) }.returns(
+            Response.success(EntryResultSet(total = 0, entries = emptyList()))
+        )
+
+        val result = delegate.addFeed(url = url, folderTitles = emptyList(), title = "")
+
+        assertTrue(result is AddFeedResult.Success)
+    }
+
+    @Test
+    fun refresh_unauthorized() = runTest {
+        coEvery { miniflux.feeds() }.returns(Response.error(401, "Unauthorized".toResponseBody()))
+
+        val result = delegate.refresh(ArticleFilter.default())
+
+        assertTrue(result.exceptionOrNull() is UnauthorizedError)
     }
 
     @Test

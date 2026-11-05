@@ -9,6 +9,7 @@ import com.capyreader.app.ui.articles.ArticleListFontScale
 import com.capyreader.app.ui.articles.DefaultPaneExpansionIndex
 import com.capyreader.app.ui.articles.MarkReadPosition
 import com.jocmp.capy.ArticleFilter
+import com.jocmp.capy.ArticleStatus
 import com.jocmp.capy.articles.FontOption
 import com.jocmp.capy.articles.FontSize
 import com.jocmp.capy.articles.SortOrder
@@ -75,8 +76,14 @@ class AppPreferences(context: Context) {
     val refreshOnWiFiOnly: Preference<Boolean>
         get() = preferenceStore.getBoolean("refresh_on_wifi_only", false)
 
-    val paneExpansionIndex: Preference<Int>
-        get() = preferenceStore.getInt("pane_expansion_index", DefaultPaneExpansionIndex)
+    val reduceMotion: Preference<Boolean>
+        get() = preferenceStore.getBoolean("reduce_motion", false)
+
+    val eInkDefaultsApplied: Preference<Boolean>
+        get() = preferenceStore.getBoolean("e_ink_defaults_applied", false)
+
+    val paneExpansionAnchor: Preference<Int>
+        get() = preferenceStore.getInt("pane_expansion_anchor", DefaultPaneExpansionIndex)
 
     fun pinFeedGroup(type: FeedGroup): Preference<Boolean> {
         return preferenceStore.getBoolean("feed_group_${type.toString().lowercase()}", true)
@@ -120,11 +127,20 @@ class AppPreferences(context: Context) {
         val enablePagingTapGesture: Preference<Boolean>
             get() = preferenceStore.getBoolean("article_enable_paging_tap_gesture", false)
 
+        val showTapZoneHint: Preference<Boolean>
+            get() = preferenceStore.getBoolean("article_show_tap_zone_hint", true)
+
+        val enableEInkScrollbar: Preference<Boolean>
+            get() = preferenceStore.getBoolean("article_enable_e_ink_scrollbar", false)
+
+        val enablePageTurnKeys: Preference<Boolean>
+            get() = preferenceStore.getBoolean("article_enable_page_turn_keys", false)
+
+        val keepScreenOn: Preference<Boolean>
+            get() = preferenceStore.getBoolean("article_keep_screen_on", false)
+
         val enableHorizontaPagination: Preference<Boolean>
             get() = preferenceStore.getBoolean("article_enable_horizontal_pagination", false)
-
-        val improveTalkback: Preference<Boolean>
-            get() = preferenceStore.getBoolean("article_improve_talkback", false)
 
         val titleTextAlignment: Preference<TextAlignment>
             get() = preferenceStore.getEnum("article_title_text_alignment", TextAlignment.default)
@@ -143,7 +159,18 @@ class AppPreferences(context: Context) {
         val backAction: Preference<BackAction>
             get() = preferenceStore.getEnum("article_list_back_action", BackAction.default)
 
-        val sortOrder: Preference<SortOrder>
+        fun getSortOrder(status: ArticleStatus): Preference<SortOrder> {
+            return preferenceStore.getEnum(
+                "article_list_sort_order_${status.name.lowercase()}",
+                legacySortOrder.get()
+            )
+        }
+
+        fun getSortOrder(filter: ArticleFilter): Preference<SortOrder> {
+            return getSortOrder(filter.status)
+        }
+
+        private val legacySortOrder: Preference<SortOrder>
             get() = preferenceStore.getEnum(
                 "article_list_sort_order",
                 SortOrder.default

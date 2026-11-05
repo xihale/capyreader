@@ -4,13 +4,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.capyreader.app.common.ImagePreview
 import com.capyreader.app.preferences.AppPreferences
+import com.capyreader.app.preferences.BadgeStyle
 import com.capyreader.app.preferences.ReaderImageVisibility
 import com.capyreader.app.preferences.ThemeMode
 import com.capyreader.app.ui.articles.ArticleListFontScale
-import com.capyreader.app.ui.articles.MarkReadPosition
 import com.jocmp.capy.Account
+import kotlinx.coroutines.launch
 
 class DisplaySettingsViewModel(
     val account: Account,
@@ -42,6 +44,9 @@ class DisplaySettingsViewModel(
     var fontScale by mutableStateOf(appPreferences.articleListOptions.fontScale.get())
         private set
 
+    var badgeStyle by mutableStateOf(appPreferences.badgeStyle.get())
+        private set
+
     val imagePreview: ImagePreview
         get() = _imagePreview.value
 
@@ -63,10 +68,6 @@ class DisplaySettingsViewModel(
 
     var imageVisibility by mutableStateOf(appPreferences.readerOptions.imageVisibility.get())
         private set
-
-    val improveTalkback = appPreferences.readerOptions.improveTalkback
-
-    val markReadButtonPosition = appPreferences.articleListOptions.markReadButtonPosition
 
     fun updateThemeMode(themeMode: ThemeMode) {
         appPreferences.themeMode.set(themeMode)
@@ -115,10 +116,6 @@ class DisplaySettingsViewModel(
         this.imageVisibility = option
     }
 
-    fun updateMarkReadButtonPosition(position: MarkReadPosition) {
-        appPreferences.articleListOptions.markReadButtonPosition.set(position)
-    }
-
     fun updateFeedIcons(show: Boolean) {
         appPreferences.articleListOptions.showFeedIcons.set(show)
 
@@ -135,5 +132,17 @@ class DisplaySettingsViewModel(
         appPreferences.articleListOptions.shortenTitles.set(shortenTitles)
 
         _shortenTitles.value = shortenTitles
+    }
+
+    fun updateBadgeStyle(style: BadgeStyle) {
+        appPreferences.badgeStyle.set(style)
+
+        badgeStyle = style
+
+        if (style == BadgeStyle.EXACT) {
+            viewModelScope.launch {
+                account.toggleAllUnreadBadges(enabled = true)
+            }
+        }
     }
 }

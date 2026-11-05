@@ -34,31 +34,25 @@ class GesturesSettingsViewModel(
     var enablePagingTapGesture by mutableStateOf(readerOptions.enablePagingTapGesture.get())
         private set
 
-    var enableHorizontalPagination by mutableStateOf(readerOptions.enableHorizontaPagination.get())
+    var enablePageTurnKeys by mutableStateOf(readerOptions.enablePageTurnKeys.get())
         private set
 
-    var improveTalkback by mutableStateOf(readerOptions.improveTalkback.get())
+    var keepScreenOn by mutableStateOf(readerOptions.keepScreenOn.get())
+        private set
+
+    var enableEInkScrollbar by mutableStateOf(readerOptions.enableEInkScrollbar.get())
+        private set
+
+    var reduceMotion by mutableStateOf(appPreferences.reduceMotion.get())
+        private set
+
+    var enableHorizontalPagination by mutableStateOf(readerOptions.enableHorizontaPagination.get())
         private set
 
     fun updateBackAction(action: BackAction) {
         backAction = action
 
         listOptions.backAction.set(action)
-    }
-
-    fun updateImproveTalkback(improve: Boolean) {
-        improveTalkback = improve
-
-        readerOptions.improveTalkback.set(improve)
-
-        if (improve) {
-            readerOptions.pinToolbars.set(true)
-            updateReaderTopSwipe(ArticleVerticalSwipe.DISABLED)
-            updateReaderBottomSwipe(ArticleVerticalSwipe.DISABLED)
-        } else {
-            updateReaderTopSwipe(ArticleVerticalSwipe.topSwipeDefault)
-            updateReaderBottomSwipe(ArticleVerticalSwipe.bottomSwipeDefault)
-        }
     }
 
     fun updateReaderTopSwipe(swipe: ArticleVerticalSwipe) {
@@ -101,6 +95,34 @@ class GesturesSettingsViewModel(
         enablePagingTapGesture = enabled
 
         readerOptions.enablePagingTapGesture.set(enabled)
+
+        if (enabled) {
+            readerOptions.showTapZoneHint.set(true)
+        }
+    }
+
+    fun updatePageTurnKeys(enabled: Boolean) {
+        enablePageTurnKeys = enabled
+
+        readerOptions.enablePageTurnKeys.set(enabled)
+    }
+
+    fun updateKeepScreenOn(enabled: Boolean) {
+        keepScreenOn = enabled
+
+        readerOptions.keepScreenOn.set(enabled)
+    }
+
+    fun updateEInkScrollbar(enabled: Boolean) {
+        enableEInkScrollbar = enabled
+
+        readerOptions.enableEInkScrollbar.set(enabled)
+    }
+
+    fun updateReduceMotion(enabled: Boolean) {
+        reduceMotion = enabled
+
+        appPreferences.reduceMotion.set(enabled)
     }
 
     private val readerOptions: AppPreferences.ReaderOptions
